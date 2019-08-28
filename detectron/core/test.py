@@ -107,6 +107,83 @@ def im_detect_all(model, im, box_proposals, timers=None):
 
     return cls_boxes, cls_segms, cls_keyps
 
+def im_detect_all_batch(model, ims, box_proposals, timers=None):
+    if timers is None:
+        timers = defaultdict(Timer)
+
+    # Handle RetinaNet testing separately for now
+    if cfg.RETINANET.RETINANET_ON:
+        raise NotImplementedError('Batch inference not implemented for retinanet, set TEST.IMS_PER_BATCH to 1')
+
+    timers['im_detect_bbox'].tic()
+    if cfg.TEST.BBOX_AUG.ENABLED:
+        raise NotImplementedError('Batch inference not implemented for bbox augmentation, set TEST.IMS_PER_BATCH to 1')
+    else:
+        scores_batch, boxes_batch, im_scales_batch = im_detect_bbox_batch(
+            model, ims, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, boxes=box_proposals
+        )
+    timers['im_detect_bbox'].toc()
+
+    cls_boxes_batch = []
+    cls_segms_batch = []
+    cls_keyps_batch = []
+    batch_ind = 0
+    for scores, bboxes, im_scale in zip(scores_batch, boxes_batch, im_scales_batch):
+        # score and boxes are from the whole image after score thresholding and nms
+        # (they are not separated by class)
+        # cls_boxes boxes and scores are separated by class and in the format used
+        # for evaluating results
+        timers['misc_bbox'].tic()
+        _, boxes, cls_boxes = box_results_with_nms_and_limit(scores, bboxes)
+        cls_boxes_batch.append(cls_boxes)
+        timers['misc_bbox'].toc()
+
+        if cfg.MODEL.MASK_ON and boxes.shape[0] > 0:
+            timers['im_detect_mask'].tic()
+            if cfg.TEST.MASK_AUG.ENABLED:
+                masks = im_detect_mask_aug(model, ims[batch_ind], boxes)
+            else:
+                masks = im_detect_mask(model, np.array([im_scale]), boxes)
+            timers['im_detect_mask'].toc()
+
+            timers['misc_mask'].tic()
+            cls_segms = segm_results(
+                cls_boxes, masks, boxes, ims[batch_ind].shape[0], ims[batch_ind].shape[1]
+                # cls_boxes, masks, boxes, im.shape[0], im.shape[1]
+            )
+            timers['misc_mask'].toc()
+        # # In case there are no box detections, create empty mask to avoid mismatch
+        # elif cfg.MODEL.MASK_ON and boxes.shape[0] == 0:
+        #     num_classes = cfg.MODEL.NUM_CLASSES
+        #     cls_segms = [[] for _ in range(num_classes)]
+        #     for j in range(1, num_classes):
+        #         segms = []
+        #         cls_segms[j] = segms
+        #     cls_segms_batch.append(cls_segms)
+        else:
+            cls_segms = None
+        cls_segms_batch.append(cls_segms)
+            
+
+        if cfg.MODEL.KEYPOINTS_ON and boxes.shape[0] > 0:
+            timers['im_detect_keypoints'].tic()
+            if cfg.TEST.KPS_AUG.ENABLED:
+                heatmaps = im_detect_keypoints_aug(model, ims[batch_ind], boxes)
+            else:
+                heatmaps = im_detect_keypoints(model, np.array([im_scale]), boxes)
+            timers['im_detect_keypoints'].toc()
+
+            timers['misc_keypoints'].tic()
+            cls_keyps = keypoint_results(cls_boxes, heatmaps, boxes)
+            timers['misc_keypoints'].toc()
+        else:
+            cls_keyps = None
+        cls_keyps_batch.append(cls_keyps)
+
+        batch_ind += 1
+
+    # return cls_boxes, cls_segms, cls_keyps
+    return cls_boxes_batch, cls_segms_batch, cls_keyps_batch
 
 def im_conv_body_only(model, im, target_scale, target_max_size):
     """Runs `model.conv_body_net` on the given image `im`."""
@@ -187,11 +264,103 @@ def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None):
         pred_boxes = np.tile(boxes, (1, scores.shape[1]))
 
     if cfg.DEDUP_BOXES > 0 and not cfg.MODEL.FASTER_RCNN:
+
         # Map scores and predictions back to the original set of boxes
         scores = scores[inv_index, :]
         pred_boxes = pred_boxes[inv_index, :]
 
     return scores, pred_boxes, im_scale
+
+
+def im_detect_bbox_batch(model, ims, target_scale, target_max_size, boxes=None):
+    """Bounding box object detection for an image with given box proposals.
+
+    Arguments:
+        model (DetectionModelHelper): the detection model to use
+        ims (list): cfg.TEST.IMS_PER_BATCH color images to test (in BGR order)
+        boxes (ndarray): R x 4 array of object proposals in 0-indexed
+            [x1, y1, x2, y2] format, or None if using RPN
+
+    Returns:
+        scores (ndarray): R x K array of object class scores for K classes
+            (K includes background as object category 0)
+        boxes (ndarray): R x 4*K array of predicted bounding boxes
+        im_scales (list): list of image scales used in the input blob (as
+            returned by _get_blobs and for use with im_detect_mask, etc.)
+    """
+    inputs, im_scales = _get_blobs_batch(ims, boxes, target_scale, target_max_size)
+
+    # When mapping from image ROIs to feature map ROIs, there's some aliasing
+    # (some distinct image ROIs get mapped to the same feature ROI).
+    # Here, we identify duplicate feature ROIs, so we only compute features
+    # on the unique subset.
+    if cfg.DEDUP_BOXES > 0 and not cfg.MODEL.FASTER_RCNN:
+        v = np.array([1, 1e3, 1e6, 1e9, 1e12])
+        hashes = np.round(inputs['rois'] * cfg.DEDUP_BOXES).dot(v)
+        _, index, inv_index = np.unique(
+            hashes, return_index=True, return_inverse=True
+        )
+        inputs['rois'] = inputs['rois'][index, :]
+        boxes = boxes[index, :]
+
+    # Add multi-level rois for FPN
+    if cfg.FPN.MULTILEVEL_ROIS and not cfg.MODEL.FASTER_RCNN:
+        _add_multilevel_rois_for_test(inputs, 'rois')
+
+    for k, v in inputs.items():
+        workspace.FeedBlob(core.ScopedName(k), v)
+    workspace.RunNet(model.net.Proto().name)
+
+    # Read out blobs
+    if cfg.MODEL.FASTER_RCNN:
+        rois = workspace.FetchBlob(core.ScopedName('rois'))
+        ## # unscale back to raw image space
+        ## boxes = rois[:, 1:5] / im_scale
+
+    # Softmax class probabilities
+    scores = workspace.FetchBlob(core.ScopedName('cls_prob')).squeeze()
+    # # In case there is 1 proposal
+    # scores = scores.reshape([-1, scores.shape[-1]])
+
+    if cfg.TEST.BBOX_REG:
+        # Apply bounding-box regression deltas
+        box_deltas = workspace.FetchBlob(core.ScopedName('bbox_pred')).squeeze()
+
+    scores_batch = []
+    pred_boxes_batch = []
+    for i in range(len(ims)):
+        # select batch
+        select_inds = np.where(rois[:, 0] == i)
+
+        # unscale back to raw image space
+        boxes = rois[select_inds, 1:5] / im_scales[i]
+        boxes = boxes.reshape([-1, boxes.shape[-1]])
+        scores_i = scores[select_inds,:]
+        scores_i = scores_i.reshape([-1, scores_i.shape[-1]])
+        scores_batch.append(scores_i)
+
+        if cfg.TEST.BBOX_REG:
+            # In case there is 1 proposal
+            box_deltas_i = box_deltas[select_inds,:]
+            box_deltas_i = box_deltas_i.reshape([-1, box_deltas_i.shape[-1]])
+            if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG:
+                # Remove predictions for bg class (compat with MSRA code)
+                box_deltas_i = box_deltas_i[:, -4:]
+            pred_boxes = box_utils.bbox_transform(
+                boxes, box_deltas_i, cfg.MODEL.BBOX_REG_WEIGHTS
+            )
+            pred_boxes = box_utils.clip_tiled_boxes(pred_boxes, ims[i].shape)
+            if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG:
+                pred_boxes = (np.tile(pred_boxes, (1, scores_i.shape[1])))
+            pred_boxes_batch.append(pred_boxes)
+        else:
+            logger.error('Not implemented.')
+            return None, None, None
+
+    if cfg.DEDUP_BOXES > 0 and not cfg.MODEL.FASTER_RCNN:
+        raise NotImplementedError('Deduplication not implemented with batch inference, set TEST.IMS_PER_BATCH to 1')
+
+    return scores_batch, pred_boxes_batch, im_scales
 
 
 def im_detect_bbox_aug(model, im, box_proposals=None):
@@ -947,3 +1116,14 @@ def _get_blobs(im, rois, target_scale, target_max_size):
     if rois is not None:
         blobs['rois'] = _get_rois_blob(rois, im_scale)
     return blobs, im_scale
+
+def _get_blobs_batch(ims, rois, target_scale, target_max_size):
+    """Convert a batch of images and RoIs within that image into network inputs."""
+    blobs = {}
+    blobs['data'], im_scales, blobs['im_info'] = \
+        blob_utils.get_image_blob_batch(ims, target_scale, target_max_size)
+    # This will not occur since we interrupt execution if region proposals are
+    # enabled
+    # if rois is not None:
+    #     blobs['rois'] = _get_rois_blob(rois, im_scale)
+    return blobs, im_scales

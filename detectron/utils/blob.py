@@ -30,6 +30,7 @@ from __future__ import unicode_literals
 
 import cv2
 import numpy as np
+import pdb
 from six.moves import cPickle as pickle
 
 from caffe2.proto import caffe2_pb2
@@ -64,6 +65,40 @@ def get_image_blob(im, target_scale, target_max_size):
     return blob, im_scale, im_info.astype(np.float32)
 
 
+def get_image_blob_batch(ims, target_scale, target_max_size):
+    """Convert an image into a network input.
+
+    Arguments:
+        ims (list): a batch of color images in BGR order
+
+    Returns:
+        blob (ndarray): a data blob holding an image pyramid
+        im_scale (float): image scale (target size) / (original size)
+        im_info (ndarray)
+    """
+    processed_ims = []
+    im_scales = []
+    for im in ims:
+        processed_im, im_scale = prep_im_for_blob(
+            im, cfg.PIXEL_MEANS, target_scale, target_max_size
+        )
+        processed_ims.append(processed_im)
+        im_scales.append(im_scale)
+    blob = im_list_to_blob(processed_ims)
+    # NOTE: this height and width may be larger than actual scaled input image
+    # due to the FPN.COARSEST_STRIDE related padding in im_list_to_blob. We are
+    # maintaining this behavior for now to make existing results exactly
+    # reproducible (in practice using the true input image height and width
+    # yields nearly the same results, but they are sometimes slightly different
+    # because predictions near the edge of the image will be pruned more
+    # aggressively).
+    height, width = blob.shape[2], blob.shape[3]
+    im_info = np.array([[height, width, 0.]] * len(ims))
+    im_info[:, 2] = np.array(im_scales)
+    # im_info = np.hstack((height, width, im_scale))[np.newaxis, :]
+    return blob, im_scales, im_info.astype(np.float32)
+
+
 def im_list_to_blob(ims):
     """Convert a list of images into a network input. Assumes images were
     prepared using prep_im_for_blob or equivalent: i.e.
@@ -74,6 +109,7 @@ def im_list_to_blob(ims):
     Output is a 4D HCHW tensor of the images concatenated along axis 0 with
     shape.
     """
+    pdb.set_trace()
     if not isinstance(ims, list):
         ims = [ims]
     max_shape = np.array([im.shape for im in ims]).max(axis=0)

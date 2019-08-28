@@ -227,6 +227,7 @@ __C.TEST.WEIGHTS = ''
 # Available dataset list: detectron.datasets.dataset_catalog.datasets()
 # If multiple datasets are listed, testing is performed on each one sequentially
 __C.TEST.DATASETS = ()
+__C.TEST.IMS_PER_BATCH = 1
 
 # Scale to use during testing
 __C.TEST.SCALE = 600
