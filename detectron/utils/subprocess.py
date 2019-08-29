@@ -24,7 +24,9 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import os
+import multiprocessing
 import numpy as np
+import pandas as pd
 import subprocess
 from six.moves import shlex_quote
 
@@ -37,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 def process_in_parallel(
-    tag, total_range_size, binary, output_dir, opts=''
+    tag, total_range_size, binary, output_dir, opts='', video_list=None
 ):
     """Run the specified binary cfg.NUM_GPUS times in parallel, each time as a
     subprocess that uses one GPU. The binary must accept the command line
@@ -59,17 +61,26 @@ def process_in_parallel(
             'Hiding GPU indices using the \'-1\' index is not supported'
     else:
         gpu_inds = range(cfg.NUM_GPUS)
+
+    # divide the cores across the GPUs
+    n_cores = multiprocessing.cpu_count()
+    all_cores = np.arange(n_cores)
+    cpu_indices = [(x[0], x[-1]) for x in np.array_split(all_cores, len(gpu_inds))]
     # Run the binary in cfg.NUM_GPUS subprocesses
     for i, gpu_ind in enumerate(gpu_inds):
         start = subinds[i][0]
         end = subinds[i][-1] + 1
         subprocess_env['CUDA_VISIBLE_DEVICES'] = str(gpu_ind)
-        cmd = '{binary} --range {start} {end} --cfg {cfg_file} NUM_GPUS 1 {opts}'
+        # cmd = '{binary} --range {start} {end} --cfg {cfg_file} NUM_GPUS 1 {opts}'
+        cmd = 'taskset -c {cpu_start}-{cpu_end} {binary} --range {start} {end} --cfg {cfg_file} --video_list {video_list} NUM_GPUS 1'
         cmd = cmd.format(
+            cpu_start=cpu_indices[i][0],
+            cpu_end=cpu_indices[i][1],
             binary=shlex_quote(binary),
             start=int(start),
             end=int(end),
             cfg_file=shlex_quote(cfg_file),
+            video_list=video_list,
             opts=' '.join([shlex_quote(opt) for opt in opts])
         )
         logger.info('{} range command {}: {}'.format(tag, i, cmd))
@@ -98,7 +109,8 @@ def process_in_parallel(
         range_file = os.path.join(
             output_dir, '%s_range_%s_%s.pkl' % (tag, start, end)
         )
-        range_data = load_object(range_file)
+        # range_data = load_object(range_file)
+        pd.read_pickle(range_file)
         outputs.append(range_data)
     return outputs
 

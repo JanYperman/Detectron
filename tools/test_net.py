@@ -49,6 +49,13 @@ cv2.ocl.setUseOpenCL(False)
 def parse_args():
     parser = argparse.ArgumentParser(description='Test a Fast R-CNN network')
     parser.add_argument(
+        'video_list',
+        dest='video_list',
+        help='plain text list of video files to run inference on',
+        type=str,
+        required=True
+    )
+    parser.add_argument(
         '--cfg',
         dest='cfg_file',
         help='optional config file',
@@ -114,4 +121,5 @@ if __name__ == '__main__':
         ind_range=args.range,
         multi_gpu_testing=args.multi_gpu_testing,
         check_expected_results=True,
+        video_list=args['video_list']
     )
