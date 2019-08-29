@@ -1,4 +1,12 @@
-# Detectron
+# Batch inference
+
+This fork is very much a work in progress.
+This fork implements batch inference with support for mask detections. It does not support all bells and whistles that Detectron comes with, and an exception will be raised notifying you when a feature is requested that isn't supported.
+
+Caveats:
+* Due to the way images within a batch are grouped to form a uniformly sized tensor, having images of different sizes and aspect ratios is very detrimental to performance. This was designed to work on videos, in which case this is't a problem.
+
+# Original README: Detectron
 
 Detectron is Facebook AI Research's software system that implements state-of-the-art object detection algorithms, including [Mask R-CNN](https://arxiv.org/abs/1703.06870). It is written in Python and powered by the [Caffe2](https://github.com/caffe2/caffe2) deep learning framework.
 
