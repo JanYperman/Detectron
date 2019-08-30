@@ -153,7 +153,7 @@ def test_net_on_dataset(
     video_list=None
 ):
     """Run inference on a dataset."""
-    dataset = video_dataset.Dataset_from_videos(video_list)
+    dataset = Dataset_from_videos(video_list)
     # dataset = JsonDataset(dataset_name)
     test_timer = Timer()
     test_timer.tic()
@@ -163,12 +163,12 @@ def test_net_on_dataset(
         num_images = dataset.tot_frames
         all_boxes, all_segms, all_keyps = multi_gpu_test_net_on_dataset(
             weights_file, dataset_name, proposal_file, num_images, output_dir,
-            video_list
+            video_list=video_list
         )
     else:
         all_boxes, all_segms, all_keyps = test_net(
             weights_file, dataset_name, proposal_file, output_dir, gpu_id=gpu_id,
-            video_list
+            video_list=video_list
         )
     test_timer.toc()
     logger.info('Total inference time: {:.3f}s'.format(test_timer.average_time))
@@ -238,7 +238,7 @@ def test_net(
     output_dir,
     ind_range=None,
     gpu_id=0,
-    video_list
+    video_list=None
 ):
     """Run inference on all images in a dataset or over an index range of images
     in a dataset using a single GPU.
@@ -249,6 +249,7 @@ def test_net(
     # if cfg.TEST.IMS_PER_BATCH != 1:
     return test_net_batch(weights_file, dataset_name, proposal_file, output_dir, ind_range, gpu_id, video_list)
 
+@profile
 def test_net_batch(
     weights_file,
     dataset_name,
@@ -276,7 +277,10 @@ def test_net_batch(
     # roidb = [{'image': im} for im in glob.glob('/staging/leuven/stg_00027/imob/detectron/lib/datasets/data/coco/coco_val2014/*.png')][:500]
 
     model = initialize_model_from_cfg(weights_file, gpu_id=gpu_id)
-    num_images = ind_range[-1] - ind_range[0]
+    if ind_range is not None:
+        num_images = ind_range[-1] - ind_range[0]
+    else:
+        num_images = dataset.tot_frames
     # num_images = len(roidb)
     num_classes = cfg.MODEL.NUM_CLASSES
     # all_boxes, all_segms, all_keyps = empty_results(num_classes, num_images)
@@ -295,7 +299,10 @@ def test_net_batch(
 
     ims_next = []
     metadata_batch_next = []
+    cursor = 0
     while cursor < num_images:
+        timers['per_frame'].tic()
+        logger.info('cursor: %i, av_per_frame: %.2f' % (cursor, timers['per_frame'].average_time / cfg.TEST.IMS_PER_BATCH))
         ims = []
         metadata_batch = []
 
@@ -395,6 +402,7 @@ def test_net_batch(
             ##         show_class=True
             ##     )
         ## ims = []
+        timers['per_frame'].toc()
 
     cfg_yaml = envu.yaml_dump(cfg)
     df = pd.DataFrame(dets_df)
@@ -440,7 +448,7 @@ def get_roidb_and_dataset(dataset_name, proposal_file, ind_range, video_list):
     restrict it to a range of indices if ind_range is a pair of integers.
     """
     # dataset = JsonDataset(dataset_name)
-    dataset = video_dataset.Dataset_from_videos(video_list)
+    dataset = Dataset_from_videos(video_list)
     ## if cfg.TEST.PRECOMPUTED_PROPOSALS:
     ##     assert proposal_file, 'No proposal file given'
     ##     roidb = dataset.get_roidb(

@@ -30,7 +30,6 @@ from __future__ import unicode_literals
 
 import cv2
 import numpy as np
-import pdb
 from six.moves import cPickle as pickle
 
 from caffe2.proto import caffe2_pb2
@@ -109,7 +108,6 @@ def im_list_to_blob(ims):
     Output is a 4D HCHW tensor of the images concatenated along axis 0 with
     shape.
     """
-    pdb.set_trace()
     if not isinstance(ims, list):
         ims = [ims]
     max_shape = np.array([im.shape for im in ims]).max(axis=0)

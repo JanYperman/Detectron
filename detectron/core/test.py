@@ -107,6 +107,7 @@ def im_detect_all(model, im, box_proposals, timers=None):
 
     return cls_boxes, cls_segms, cls_keyps
 
+@profile
 def im_detect_all_batch(model, ims, box_proposals, timers=None):
     if timers is None:
         timers = defaultdict(Timer)

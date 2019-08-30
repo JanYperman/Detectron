@@ -4,9 +4,17 @@ import pdb
 
 class Dataset_from_videos:
     def __init__(self, avi_list):
-        assert isinstance(avi_list, list), 'avi_list should be a list!'
-        assert len(avi_list) > 0, 'Pass videofiles!'
-        self.avi_list = avi_list
+        if isinstance(avi_list, str):
+            # Read the plain text list of video files
+            with open(avi_list, 'r') as f:
+                self.avi_list = [x.strip() for x in f.readlines()]
+        elif isinstance(avi_list, list):
+            assert len(avi_list) > 0, 'Pass videofiles!'
+            self.avi_list = avi_list
+        else:
+            raise Exception('Pass the list of videofiles as either \
+                    the filename of plaintext file with filenames or \
+                    as an explicit list of video filenames')
         self._cur_index = -1
         self._cur_reader = None
         self._cur_avi_file = None
@@ -21,7 +29,7 @@ class Dataset_from_videos:
         for avi_file in self.avi_list:
             tot_count += int(cv2.VideoCapture(avi_file).get(cv2.CAP_PROP_FRAME_COUNT))
             self._framerates.append(cv2.VideoCapture(avi_file).get(cv2.CAP_PROP_FPS))
-            # tot_count += int(cv2.VideoCapture(avi_file).get(cv2.cv.CAP_PROP_FRAME_COUNT))
+            # tot_count += int(cv2.VideoCapture(avi_file).get(cv2.CAP_PROP_FRAME_COUNT))
         self.tot_frames = tot_count * 2 # Due to left and right image
 
     def get_frame_shape(self):
@@ -67,15 +75,16 @@ class Dataset_from_videos:
                 ret, frame = self.cur_reader.read()
 
             image = frame[:, :int(frame.shape[1] / 2), :] if self._side == 'L' else frame[:, int(frame.shape[1] / 2):, :]
+            rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             metadata = {
                         'frame': self._cur_reader.get(cv2.CAP_PROP_POS_FRAMES),
                         'video_file': self._cur_avi_file,
                         'side': self._side,
                         'frame_id': '_'.join([str(self._cur_index), str(int(self._cur_reader.get(cv2.CAP_PROP_POS_FRAMES)))]),
-                        'frame_width': self._cur_reader.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH),
-                        'frame_height': self._cur_reader.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT)
+                        'frame_width': self._cur_reader.get(cv2.CAP_PROP_FRAME_WIDTH),
+                        'frame_height': self._cur_reader.get(cv2.CAP_PROP_FRAME_HEIGHT)
                        }
-            return image, metadata
+            return rgb, metadata
         else:
             ret = self.cur_reader.grab()
             if not ret:
@@ -89,8 +98,8 @@ class Dataset_from_videos:
                             'video_file': self._cur_avi_file,
                             'side': self._side,
                             'frame_id': '_'.join([str(self._cur_index), str(int(self._cur_reader.get(cv2.CAP_PROP_POS_FRAMES)))]),
-                            'frame_width': self._cur_reader.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH),
-                            'frame_height': self._cur_reader.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT)
+                            'frame_width': self._cur_reader.get(cv2.CAP_PROP_FRAME_WIDTH),
+                            'frame_height': self._cur_reader.get(cv2.CAP_PROP_FRAME_HEIGHT)
                            }
                 return metadata
 

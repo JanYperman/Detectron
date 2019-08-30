@@ -1171,7 +1171,7 @@ def merge_cfg_from_list(cfg_list):
         key_list = full_key.split('.')
         d = __C
         for subkey in key_list[:-1]:
-            assert subkey in d, 'Non-existent key: {}'.format(full_key)
+            assert subkey in d, 'Non-existent key: {} {}'.format(full_key, cfg_list)
             d = d[subkey]
         subkey = key_list[-1]
         assert subkey in d, 'Non-existent key: {}'.format(full_key)
