@@ -27,7 +27,7 @@ import glob # Debug
 import logging
 import numpy as np
 import os
-import pandas
+import pandas as pd
 import pdb
 
 from caffe2.python import workspace
@@ -249,7 +249,7 @@ def test_net(
     # if cfg.TEST.IMS_PER_BATCH != 1:
     return test_net_batch(weights_file, dataset_name, proposal_file, output_dir, ind_range, gpu_id, video_list)
 
-@profile
+# @profile
 def test_net_batch(
     weights_file,
     dataset_name,
@@ -353,8 +353,8 @@ def test_net_batch(
                         'boxes': cls_boxes_i[cls][det_idx],
                         'segms': cls_segms_i[cls][det_idx]
                         })
-                # Add the video metadata
-                dets_df[-1].update(metadata_batch[n])
+                    # Add the video metadata
+                    dets_df[-1].update(metadata_batch[n])
 
             ## extend_results(local_i, all_boxes, cls_boxes_i)
             ## if cls_segms_i is not None:

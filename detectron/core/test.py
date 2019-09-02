@@ -107,7 +107,7 @@ def im_detect_all(model, im, box_proposals, timers=None):
 
     return cls_boxes, cls_segms, cls_keyps
 
-@profile
+# @profile
 def im_detect_all_batch(model, ims, box_proposals, timers=None):
     if timers is None:
         timers = defaultdict(Timer)
@@ -979,6 +979,7 @@ def box_results_with_nms_and_limit(scores, boxes):
     return scores, boxes, cls_boxes
 
 
+# @profile
 def segm_results(cls_boxes, masks, ref_boxes, im_h, im_w):
     num_classes = cfg.MODEL.NUM_CLASSES
     cls_segms = [[] for _ in range(num_classes)]
