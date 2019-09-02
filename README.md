@@ -6,6 +6,20 @@ This fork implements batch inference with support for mask detections. It does n
 Caveats:
 * Due to the way images within a batch are grouped to form a uniformly sized tensor, having images of different sizes and aspect ratios is very detrimental to performance. This was designed to work on videos, in which case this is't a problem.
 
+# Video processing
+
+This branch was modified to use videos directly instead of converting to images first.
+
+Usage:
+```bash
+python test_net.py --cfg ../configs/12_2017_baselines/e2e_mask_rcnn_R-101-FPN_2x_batch.yaml --multi-gpu-testing --video_list video_list.txt
+```
+where *video_list.txt* is a plain text file where each line contains the full path to a video that should be processed. This will run batch inference on the specified list of videos, using multiple gpus (as specified by the MODEL > NUM_GPUS value in the config file). The resulting detections will be saved in a pandas dataframe, which is pickled to the default location Detectron uses. The config file (here *../configs/12_2017_baselines/e2e_mask_rcnn_R-101-FPN_2x_batch.yaml*) should contain a value under TEST, named IMS_PER_BATCH to set the number of images per batch for batch inference. In our case, *5* seems to be a good value.
+
+Caveats:
+* Currently, the videos consist of the combined feed of two cameras. Therefore, in [the dataset script](./detectron/datasets/video_dataset.py) each frame is split into a left and right part. If this isn't required, it should be straightforward to modify this to work with a single feed.
+* Taskset is required to run for now, as explicitly setting the affinity of the subprocesses (during multi-gpu-testing) significantly boosts performance.
+
 # Original README: Detectron
 
 Detectron is Facebook AI Research's software system that implements state-of-the-art object detection algorithms, including [Mask R-CNN](https://arxiv.org/abs/1703.06870). It is written in Python and powered by the [Caffe2](https://github.com/caffe2/caffe2) deep learning framework.
